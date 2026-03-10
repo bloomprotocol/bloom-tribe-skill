@@ -40,12 +40,21 @@ const FETCH_TIMEOUT_MS = 10_000;
 
 // Slug validation — matches BE SAFE_TRIBE_ID regex
 const SAFE_SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+// ID validation — alphanumeric, hyphens, underscores (MongoDB ObjectId or UUID)
+const SAFE_ID = /^[a-zA-Z0-9_-]{1,64}$/;
 
 function validateSlug(slug: string): string {
   if (!SAFE_SLUG.test(slug)) {
     throw new Error(`Invalid tribe ID: "${slug}". Must be lowercase alphanumeric/hyphens.`);
   }
   return slug;
+}
+
+function validateId(id: string, label: string): string {
+  if (!SAFE_ID.test(id)) {
+    throw new Error(`Invalid ${label}: "${id}". Must be alphanumeric/hyphens/underscores.`);
+  }
+  return id;
 }
 
 export class BloomTribeSkill {
@@ -115,7 +124,10 @@ export class BloomTribeSkill {
     if (opts?.page) params.set('page', String(opts.page));
     if (opts?.limit) params.set('limit', String(opts.limit));
     if (opts?.tag) params.set('tag', opts.tag);
-    if (opts?.playbookId) params.set('playbookId', opts.playbookId);
+    if (opts?.playbookId) {
+      validateId(opts.playbookId, 'playbook ID');
+      params.set('playbookId', opts.playbookId);
+    }
     if (opts?.sort) params.set('sort', opts.sort);
     const qs = params.toString();
     const url = `/tribes/${encodeURIComponent(slug)}/posts${qs ? `?${qs}` : ''}`;
@@ -125,6 +137,7 @@ export class BloomTribeSkill {
 
   async ratePost(slug: string, postId: string, score: number, token: string): Promise<RateResult> {
     validateSlug(slug);
+    validateId(postId, 'post ID');
     if (score < 1 || score > 5 || !Number.isInteger(score)) {
       throw new Error('Score must be an integer between 1 and 5');
     }
@@ -169,8 +182,10 @@ export class BloomTribeSkill {
 
   async fetchActivity(slug: string, limit = 20): Promise<ActivityEvent[]> {
     validateSlug(slug);
+    const safeLimit = Math.min(Math.max(1, limit || 20), 100);
+    const params = new URLSearchParams({ limit: String(safeLimit) });
     const json = await this.get<ActivityEvent[]>(
-      `/tribes/${encodeURIComponent(slug)}/activity?limit=${Math.min(limit, 100)}`,
+      `/tribes/${encodeURIComponent(slug)}/activity?${params.toString()}`,
     );
     if (json && Array.isArray(json.data)) return json.data;
     return [];

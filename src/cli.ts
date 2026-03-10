@@ -103,9 +103,25 @@ async function main() {
       console.error(`Invalid sort. Choose from: ${VALID_SORTS.join(', ')}`);
       process.exit(1);
     }
+    let page: number | undefined;
+    if (opts.page) {
+      page = parseInt(opts.page, 10);
+      if (isNaN(page) || page < 1) {
+        console.error('--page must be a positive integer');
+        process.exit(1);
+      }
+    }
+    let limit: number | undefined;
+    if (opts.limit) {
+      limit = parseInt(opts.limit, 10);
+      if (isNaN(limit) || limit < 1 || limit > 100) {
+        console.error('--limit must be an integer between 1 and 100');
+        process.exit(1);
+      }
+    }
     const data = await skill.fetchPosts(opts.posts, {
-      page: opts.page ? parseInt(opts.page, 10) : undefined,
-      limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
+      page,
+      limit,
       tag,
       sort,
     });

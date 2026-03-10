@@ -29,10 +29,18 @@ ARGS=()
 while [[ $# -gt 0 ]]; do
   case $1 in
     --tribe|--join|--posts|--digest|--playbooks|--activity|--in)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: $1 requires a value" >&2
+        exit 1
+      fi
       ARGS+=("$1" "$2")
       shift 2
       ;;
     --rate)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --rate requires a post ID" >&2
+        exit 1
+      fi
       ARGS+=("--rate" "$2")
       shift 2
       ;;
@@ -41,6 +49,10 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --status|--token|--message|--tag|--sort|--page|--limit|--score)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: $1 requires a value" >&2
+        exit 1
+      fi
       ARGS+=("$1" "$2")
       shift 2
       ;;
