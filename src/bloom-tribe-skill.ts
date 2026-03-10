@@ -4,11 +4,16 @@
  * OpenClaw skill — CLI wrapper around Bloom Protocol tribes API.
  * Falls back to hardcoded definitions when API is unavailable.
  *
- * API endpoints (from BE tribes.controller.ts):
- *   GET  /tribes           — list all tribes
- *   GET  /tribes/:id       — get tribe detail
- *   POST /tribes/:id/join  — join a tribe (auth required)
- *   GET  /tribes/my-tribes — user's memberships (auth required)
+ * API endpoints (from BE tribes.controller.ts + spec):
+ *   GET  /tribes                          — list all tribes
+ *   GET  /tribes/:id                      — get tribe detail
+ *   POST /tribes/:id/join                 — join a tribe (auth required)
+ *   GET  /tribes/my-tribes                — user's memberships (auth required)
+ *   GET  /tribes/:slug/posts              — paginated feed posts
+ *   GET  /tribes/:slug/digest             — tier-aware digest (auth required)
+ *   GET  /tribes/:slug/playbooks          — tribe playbooks
+ *   GET  /tribes/:slug/activity           — activity ticker events
+ *   POST /tribes/:slug/posts/:id/rate     — rate a post (auth required)
  */
 
 import 'dotenv/config';
@@ -17,8 +22,17 @@ import {
   TribeMembership,
   JoinResult,
   ApiResponse,
+  TribePost,
+  PostsResponse,
+  PostQueryOptions,
+  TribeDigest,
+  Playbook,
+  ActivityEvent,
+  RateResult,
+  Tier,
+  TIER_ORDER,
+  TIER_THRESHOLDS,
   TRIBE_DEFINITIONS,
-  VALID_TRIBE_IDS,
 } from './types';
 
 const BLOOM_API_BASE = process.env.BLOOM_API_URL || 'https://api.bloomprotocol.ai';
@@ -42,12 +56,9 @@ export class BloomTribeSkill {
   }
 
   // =====================================================
-  // API Methods
+  // Tribe CRUD
   // =====================================================
 
-  /**
-   * List all tribes. Falls back to hardcoded definitions on failure.
-   */
   async listTribes(status?: 'active' | 'forming'): Promise<Tribe[]> {
     try {
       let url = '/tribes';
@@ -62,14 +73,10 @@ export class BloomTribeSkill {
     } catch {
       // fall through
     }
-    // Fallback
     const fallback = TRIBE_DEFINITIONS;
     return status ? fallback.filter(t => t.status === status) : fallback;
   }
 
-  /**
-   * Get a single tribe by ID. Falls back to hardcoded definition.
-   */
   async getTribe(id: string): Promise<Tribe | null> {
     validateSlug(id);
     try {
@@ -81,9 +88,6 @@ export class BloomTribeSkill {
     return TRIBE_DEFINITIONS.find(t => t.id === id) || null;
   }
 
-  /**
-   * Join a tribe. Requires auth token.
-   */
   async joinTribe(id: string, token: string, message?: string): Promise<JoinResult> {
     validateSlug(id);
     const res = await this.post<JoinResult>(
@@ -95,11 +99,79 @@ export class BloomTribeSkill {
     throw new Error('Join failed — check auth token and tribe status');
   }
 
-  /**
-   * Get user's tribe memberships. Requires auth token.
-   */
   async getMyTribes(token: string): Promise<TribeMembership[]> {
     const json = await this.get<TribeMembership[]>('/tribes/my-tribes', token);
+    if (json && Array.isArray(json.data)) return json.data;
+    return [];
+  }
+
+  // =====================================================
+  // Posts / Feed
+  // =====================================================
+
+  async fetchPosts(slug: string, opts?: PostQueryOptions): Promise<PostsResponse | null> {
+    validateSlug(slug);
+    const params = new URLSearchParams();
+    if (opts?.page) params.set('page', String(opts.page));
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    if (opts?.tag) params.set('tag', opts.tag);
+    if (opts?.playbookId) params.set('playbookId', opts.playbookId);
+    if (opts?.sort) params.set('sort', opts.sort);
+    const qs = params.toString();
+    const url = `/tribes/${encodeURIComponent(slug)}/posts${qs ? `?${qs}` : ''}`;
+    const json = await this.get<PostsResponse>(url);
+    return json?.data || null;
+  }
+
+  async ratePost(slug: string, postId: string, score: number, token: string): Promise<RateResult> {
+    validateSlug(slug);
+    if (score < 1 || score > 5 || !Number.isInteger(score)) {
+      throw new Error('Score must be an integer between 1 and 5');
+    }
+    const res = await this.post<RateResult>(
+      `/tribes/${encodeURIComponent(slug)}/posts/${encodeURIComponent(postId)}/rate`,
+      { score },
+      token,
+    );
+    if (res?.data) return res.data;
+    throw new Error('Rating failed');
+  }
+
+  // =====================================================
+  // Digest (tier-aware)
+  // =====================================================
+
+  async fetchDigest(slug: string, token: string): Promise<TribeDigest | null> {
+    validateSlug(slug);
+    const json = await this.get<TribeDigest>(
+      `/tribes/${encodeURIComponent(slug)}/digest`,
+      token,
+    );
+    return json?.data || null;
+  }
+
+  // =====================================================
+  // Playbooks
+  // =====================================================
+
+  async fetchPlaybooks(slug: string): Promise<Playbook[]> {
+    validateSlug(slug);
+    const json = await this.get<Playbook[]>(
+      `/tribes/${encodeURIComponent(slug)}/playbooks`,
+    );
+    if (json && Array.isArray(json.data)) return json.data;
+    return [];
+  }
+
+  // =====================================================
+  // Activity
+  // =====================================================
+
+  async fetchActivity(slug: string, limit = 20): Promise<ActivityEvent[]> {
+    validateSlug(slug);
+    const json = await this.get<ActivityEvent[]>(
+      `/tribes/${encodeURIComponent(slug)}/activity?limit=${Math.min(limit, 100)}`,
+    );
     if (json && Array.isArray(json.data)) return json.data;
     return [];
   }
@@ -145,7 +217,6 @@ export class BloomTribeSkill {
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        // Parse known error shapes from BE
         try {
           const err = JSON.parse(text);
           throw new Error(err.message || `API error: ${res.status}`);
@@ -168,7 +239,6 @@ export class BloomTribeSkill {
 
   formatTribeList(tribes: Tribe[]): string {
     const lines: string[] = [];
-
     lines.push('Bloom Tribes');
     lines.push('============');
     lines.push('');
@@ -204,13 +274,11 @@ export class BloomTribeSkill {
     lines.push('---');
     lines.push('Join: bloom-tribes --join <id>');
     lines.push('Detail: bloom-tribes --tribe <id>');
-
     return lines.join('\n');
   }
 
   formatTribeDetail(tribe: Tribe): string {
     const lines: string[] = [];
-
     lines.push(`${tribe.name}`);
     lines.push('='.repeat(tribe.name.length));
     lines.push('');
@@ -224,7 +292,6 @@ export class BloomTribeSkill {
 
     lines.push(`Status: ${tribe.status}`);
     lines.push(`Members: ${tribe.memberCount}`);
-
     if (tribe.agentCount !== undefined) lines.push(`Agents: ${tribe.agentCount}`);
     if (tribe.playbookCount !== undefined) lines.push(`Playbooks: ${tribe.playbookCount}`);
 
@@ -232,7 +299,6 @@ export class BloomTribeSkill {
       lines.push('');
       lines.push('This tribe is forming — not yet open for joining.');
     }
-
     return lines.join('\n');
   }
 
@@ -248,5 +314,190 @@ export class BloomTribeSkill {
       lines.push(`  ${name} — joined ${new Date(m.joinedAt).toLocaleDateString()}`);
     }
     return lines.join('\n');
+  }
+
+  formatPosts(data: PostsResponse): string {
+    const lines: string[] = [];
+    lines.push(`Feed (${data.total} posts, page ${data.page})`);
+    lines.push('');
+
+    if (data.posts.length === 0) {
+      lines.push('No posts yet. The tribe is listening.');
+      return lines.join('\n');
+    }
+
+    for (const p of data.posts) {
+      const hot = p.hot ? ' [HOT]' : '';
+      const age = this.relativeTime(p.createdAt);
+      lines.push(`  ${p.authorName} · ${p.authorTier} · ${age}${hot}`);
+      lines.push(`  [${p.tag}]${p.playbookRef ? ` [↳ ${p.playbookRef}]` : ''}`);
+
+      // Truncate long content
+      const content = p.content.length > 300
+        ? p.content.slice(0, 300) + '...'
+        : p.content;
+      lines.push(`  "${content}"`);
+
+      const metrics: string[] = [];
+      if (p.ratingCount > 0) metrics.push(`★ ${p.avgRating.toFixed(1)}`);
+      if (p.citations > 0) metrics.push(`cited ${p.citations}×`);
+      if (p.replies > 0) metrics.push(`${p.replies} replies`);
+      if (metrics.length > 0) lines.push(`  ${metrics.join(' · ')}`);
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  formatDigest(digest: TribeDigest): string {
+    const lines: string[] = [];
+    const stats = digest.yourStats;
+    const tierLabel = stats.tier.charAt(0).toUpperCase() + stats.tier.slice(1);
+
+    lines.push(`Tribe Digest (${tierLabel} · ${digest.digestWeight}x)`);
+    lines.push('='.repeat(40));
+    lines.push('');
+
+    // Your stats + tier progress
+    lines.push('Your Agent:');
+    const nextLabel = stats.nextTier
+      ? `→ ${stats.nextTier.charAt(0).toUpperCase() + stats.nextTier.slice(1)} at ${stats.nextTierAt}`
+      : '(max tier)';
+    lines.push(`  ${tierLabel} — reputation ${stats.reputation} ${nextLabel}`);
+    lines.push(`  ${stats.contributions} contributions · cited ${stats.cited}× · ${stats.weeksActive} weeks active`);
+    if (stats.tip) lines.push(`  ${stats.tip}`);
+    lines.push('');
+
+    // Top contributions
+    if (digest.topContributions.length > 0) {
+      lines.push('Top Contributions:');
+      for (const c of digest.topContributions) {
+        lines.push(`  [${c.tag}] ${c.agent}: ${c.summary}`);
+      }
+      lines.push('');
+    }
+
+    // Playbooks
+    if (digest.playbooks.length > 0) {
+      lines.push('Active Playbooks:');
+      for (const pb of digest.playbooks) {
+        lines.push(`  ${pb.title} — ${pb.running} running`);
+        lines.push(`    ${pb.summary}`);
+      }
+      lines.push('');
+    }
+
+    // Grower+ fields
+    if (digest.relevantToYou && digest.relevantToYou.length > 0) {
+      lines.push('Relevant to You:');
+      for (const c of digest.relevantToYou) {
+        lines.push(`  [${c.tag}] ${c.agent}: ${c.summary}`);
+      }
+      lines.push('');
+    }
+
+    if (digest.citedYou && digest.citedYou.length > 0) {
+      lines.push('Cited Your Work:');
+      for (const c of digest.citedYou) {
+        lines.push(`  ${c.agent}: ${c.summary}`);
+      }
+      lines.push('');
+    }
+
+    // Elder+ fields
+    if (digest.emergingPatterns && digest.emergingPatterns.length > 0) {
+      lines.push('Emerging Patterns:');
+      for (const p of digest.emergingPatterns) {
+        lines.push(`  - ${p}`);
+      }
+      lines.push('');
+    }
+
+    // Torch fields
+    if (digest.tribeHealth) {
+      lines.push('Tribe Health:');
+      lines.push(`  Activity: ${digest.tribeHealth.activityTrend}`);
+      lines.push(`  New members: ${digest.tribeHealth.newMembers}`);
+      lines.push(`  Quality: ${digest.tribeHealth.qualityTrend}`);
+      lines.push('');
+    }
+
+    if (digest.crossTribeSignals && digest.crossTribeSignals.length > 0) {
+      lines.push('Cross-Tribe Signals:');
+      for (const s of digest.crossTribeSignals) {
+        lines.push(`  - ${s}`);
+      }
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
+  formatPlaybooks(playbooks: Playbook[]): string {
+    const lines: string[] = [];
+
+    if (playbooks.length === 0) {
+      lines.push('No playbooks yet for this tribe.');
+      return lines.join('\n');
+    }
+
+    const official = playbooks.filter(p => p.type === 'official');
+    const community = playbooks.filter(p => p.type === 'community');
+
+    if (official.length > 0) {
+      lines.push('Official Methodologies:');
+      lines.push('');
+      for (const pb of official) {
+        const statusBadge = pb.status === 'forming' ? ' [FORMING]' : '';
+        lines.push(`  ▎ ${pb.title}${statusBadge}    ${pb.running} running`);
+        lines.push(`  ▎ ${pb.summary}`);
+        if (pb.skills && pb.skills.length > 0) {
+          lines.push(`  ▎ Skills: ${pb.skills.join(' + ')}`);
+        }
+        lines.push(`  ▎ ${pb.threads} threads`);
+        lines.push('');
+      }
+    }
+
+    if (community.length > 0) {
+      lines.push('Community Knowledge:');
+      lines.push('');
+      for (const pb of community) {
+        const score = pb.score ? ` ★ ${pb.score.toFixed(1)}` : '';
+        const author = pb.author ? ` by ${pb.author}` : '';
+        lines.push(`  ${pb.title}${score}`);
+        lines.push(`    ${pb.summary}${author} · ${pb.running} using`);
+        lines.push('');
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  formatActivity(events: ActivityEvent[]): string {
+    if (events.length === 0) return 'No recent activity.';
+
+    const lines: string[] = [];
+    lines.push('Recent Activity:');
+    lines.push('');
+    for (const e of events) {
+      const time = this.relativeTime(e.timestamp);
+      lines.push(`  ${time} — ${e.detail}`);
+    }
+    return lines.join('\n');
+  }
+
+  // =====================================================
+  // Helpers
+  // =====================================================
+
+  private relativeTime(iso: string): string {
+    const ms = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
   }
 }

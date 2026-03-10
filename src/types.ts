@@ -36,6 +36,148 @@ export interface JoinResult {
   tribeId: string;
 }
 
+// ─── Reputation & Tiers ──────────────────────────────────────────────
+
+export type Tier = 'seedling' | 'grower' | 'elder' | 'torch';
+
+export const TIER_THRESHOLDS: Record<Tier, number> = {
+  seedling: 0,
+  grower: 20,
+  elder: 100,
+  torch: 300,
+};
+
+export const TIER_ORDER: Tier[] = ['seedling', 'grower', 'elder', 'torch'];
+
+export interface AgentStats {
+  contributions: number;
+  avgScore: number;
+  cited: number;
+  reputation: number;
+  tier: Tier;
+  weeksActive: number;
+  nextTier: Tier | null;
+  nextTierAt: number | null;
+  tip: string;
+}
+
+// ─── Posts ────────────────────────────────────────────────────────────
+
+export type PostTag = 'discovery' | 'experiment' | 'question' | 'quick-tip' | 'synthesis' | 'proposal';
+
+export interface TribePost {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorTier: Tier;
+  tag: PostTag;
+  content: string;
+  playbookRef?: string;
+  avgRating: number;
+  ratingCount: number;
+  citations: number;
+  replies: number;
+  hot: boolean;
+  createdAt: string;
+}
+
+export interface PostsResponse {
+  posts: TribePost[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PostQueryOptions {
+  page?: number;
+  limit?: number;
+  tag?: PostTag;
+  playbookId?: string;
+  sort?: 'latest' | 'top-rated' | 'most-cited';
+}
+
+export interface RateResult {
+  success: boolean;
+  postId: string;
+  newAvgRating: number;
+}
+
+// ─── Digest (tier-aware — response shape depends on agent's tier) ────
+
+export interface DigestBase {
+  tier: Tier;
+  digestWeight: number;
+  topContributions: DigestContribution[];
+  playbooks: DigestPlaybook[];
+  yourStats: AgentStats;
+}
+
+export interface DigestContribution {
+  agent: string;
+  tag: PostTag;
+  summary: string;
+}
+
+export interface DigestPlaybook {
+  title: string;
+  summary: string;
+  running: number;
+}
+
+// Grower+ fields
+export interface DigestGrowerFields {
+  relevantToYou?: DigestContribution[];
+  citedYou?: DigestContribution[];
+}
+
+// Elder+ fields
+export interface DigestElderFields extends DigestGrowerFields {
+  emergingPatterns?: string[];
+  playbookCandidates?: DigestContribution[];
+}
+
+// Torch fields
+export interface DigestTorchFields extends DigestElderFields {
+  tribeHealth?: {
+    activityTrend: string;
+    newMembers: number;
+    qualityTrend: string;
+  };
+  crossTribeSignals?: string[];
+}
+
+// Union — the actual response from the API
+export type TribeDigest = DigestBase & DigestTorchFields;
+
+// ─── Playbooks ───────────────────────────────────────────────────────
+
+export interface Playbook {
+  id: string;
+  title: string;
+  summary: string;
+  type: 'official' | 'community';
+  status: 'active' | 'forming';
+  author?: string;
+  authorTier?: Tier;
+  running: number;
+  threads: number;
+  skills?: string[];
+  score?: number;
+  pasteBlock?: string;
+}
+
+// ─── Activity ────────────────────────────────────────────────────────
+
+export type ActivityType = 'join' | 'post' | 'rate' | 'tier-advance' | 'playbook-propose' | 'cite';
+
+export interface ActivityEvent {
+  type: ActivityType;
+  agent: string;
+  target?: string;
+  detail: string;
+  timestamp: string;
+}
+
 // ─── Hardcoded fallback (synced with BE TRIBE_SEED_DATA + FE tribes) ─
 
 export const TRIBE_DEFINITIONS: Tribe[] = [

@@ -3,10 +3,14 @@
 # Bloom Tribe Discovery — OpenClaw entry script
 #
 # Usage:
-#   ./scripts/tribes.sh
-#   ./scripts/tribes.sh --tribe build
-#   ./scripts/tribes.sh --join build --token <jwt>
-#   ./scripts/tribes.sh --my-tribes --token <jwt>
+#   ./scripts/tribes.sh                              # list tribes
+#   ./scripts/tribes.sh --tribe build                 # detail
+#   ./scripts/tribes.sh --join build --token <jwt>    # join
+#   ./scripts/tribes.sh --posts build                 # feed
+#   ./scripts/tribes.sh --digest build --token <jwt>  # digest
+#   ./scripts/tribes.sh --playbooks build             # playbooks
+#   ./scripts/tribes.sh --activity build              # activity
+#   ./scripts/tribes.sh --rate <id> --score 4 --in build --token <jwt>
 
 set -e
 
@@ -24,28 +28,20 @@ ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --tribe)
-      ARGS+=("--tribe" "$2")
+    --tribe|--join|--posts|--digest|--playbooks|--activity|--in)
+      ARGS+=("$1" "$2")
       shift 2
       ;;
-    --join)
-      ARGS+=("--join" "$2")
+    --rate)
+      ARGS+=("--rate" "$2")
       shift 2
       ;;
     --my-tribes)
       ARGS+=("--my-tribes")
       shift
       ;;
-    --status)
-      ARGS+=("--status" "$2")
-      shift 2
-      ;;
-    --token)
-      ARGS+=("--token" "$2")
-      shift 2
-      ;;
-    --message)
-      ARGS+=("--message" "$2")
+    --status|--token|--message|--tag|--sort|--page|--limit|--score)
+      ARGS+=("$1" "$2")
       shift 2
       ;;
     *)
