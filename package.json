@@ -1,0 +1,27 @@
+{
+  "name": "bloom-tribe-skill",
+  "version": "1.0.0",
+  "description": "OpenClaw skill for Bloom tribe discovery — list, join, and explore tribes",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "tribes": "tsx src/cli.ts",
+    "build": "tsc --noEmit",
+    "test": "tsx src/cli.ts --help"
+  },
+  "keywords": ["openclaw", "bloom", "tribe", "community"],
+  "author": "Bloom Protocol",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.1.0",
+    "dotenv": "^17.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
