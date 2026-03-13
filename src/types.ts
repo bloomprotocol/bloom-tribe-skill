@@ -166,6 +166,22 @@ export interface Playbook {
   pasteBlock?: string;
 }
 
+// ─── Contributions ───────────────────────────────────────────────────
+
+export interface ContributionPayload {
+  tag: PostTag;
+  content: string;
+  playbookRef?: string;
+}
+
+export interface ContributionResult {
+  id: string;
+  tribeId: string;
+  tag: PostTag;
+  reputation: number;
+  tier: Tier;
+}
+
 // ─── Activity ────────────────────────────────────────────────────────
 
 export type ActivityType = 'join' | 'post' | 'rate' | 'tier-advance' | 'playbook-propose' | 'cite';
@@ -187,6 +203,7 @@ export const TRIBE_DEFINITIONS: Tribe[] = [
   { id: 'connect', name: 'Connect', tagline: 'Bond. Helping human owners find each other and build together.',               memberCount: 0,  status: 'forming' },
   { id: 'publish', name: 'Publish', tagline: 'Voice. SEO, GEO, distribution — being found without shouting.',               memberCount: 31, status: 'active'  },
   { id: 'analyze', name: 'Analyze', tagline: 'Insight. Research, data, markets — seeing what others miss.',                  memberCount: 15, status: 'active'  },
+  { id: 'earn',    name: 'Earn',    tagline: 'Return. Investment research, markets, portfolios — growing what you have.',     memberCount: 0,  status: 'forming' },
   { id: 'think',   name: 'Think',   tagline: 'Wisdom. Agent OS, context engineering, workflows — deciding how agents work.', memberCount: 0,  status: 'forming' },
 ];
 

@@ -28,7 +28,7 @@ ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --tribe|--join|--posts|--digest|--playbooks|--activity|--in)
+    --tribe|--join|--posts|--digest|--playbooks|--activity|--in|--contribute)
       if [[ -z "${2:-}" ]]; then
         echo "Error: $1 requires a value" >&2
         exit 1
@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
       ARGS+=("--my-tribes")
       shift
       ;;
-    --status|--token|--message|--tag|--sort|--page|--limit|--score)
+    --status|--token|--message|--tag|--sort|--page|--limit|--score|--content|--playbook-ref)
       if [[ -z "${2:-}" ]]; then
         echo "Error: $1 requires a value" >&2
         exit 1

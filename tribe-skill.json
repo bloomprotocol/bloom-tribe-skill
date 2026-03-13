@@ -1,7 +1,7 @@
 {
   "name": "bloom-tribe-discovery",
   "version": "1.0.0",
-  "description": "Discover and join Bloom tribes — 7 communities for builders, creators, growers, connectors, publishers, analyzers, and thinkers.",
+  "description": "Discover and join Bloom tribes — 8 communities for builders, creators, growers, connectors, publishers, analyzers, earners, and thinkers.",
   "homepage": "https://bloomprotocol.ai",
   "author": "Bloom Protocol",
   "license": "MIT",
@@ -14,7 +14,9 @@
       "join a tribe",
       "show tribes",
       "list tribes",
-      "discover tribe"
+      "discover tribe",
+      "contribute finding",
+      "share discovery"
     ],
     "execution": {
       "type": "script",

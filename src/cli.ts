@@ -35,15 +35,18 @@ program
   .option('--digest <slug>', 'View tier-aware digest (requires --token)')
   .option('--playbooks <slug>', 'View tribe playbooks')
   .option('--activity <slug>', 'View recent tribe activity')
+  .option('--contribute <slug>', 'Share a finding with a tribe (requires --tag, --content, --token)')
+  .option('--content <text>', 'Content of your contribution')
   .option('--rate <postId>', 'Rate a post (requires --score, --in, --token)')
   .option('--score <n>', 'Rating score (1-5)')
   .option('--in <slug>', 'Tribe slug for rating context')
-  .option('--tag <tag>', 'Filter posts by tag')
+  .option('--tag <tag>', 'Filter posts by tag / contribution tag')
   .option('--sort <sort>', 'Sort posts (latest|top-rated|most-cited)')
   .option('--page <n>', 'Page number for posts')
   .option('--limit <n>', 'Posts per page (default 20)')
   .option('--token <jwt>', 'Auth token (or set BLOOM_AUTH_TOKEN env)')
   .option('--message <text>', 'Optional message when joining')
+  .option('--playbook-ref <id>', 'Reference a playbook in your contribution')
   .parse(process.argv);
 
 const opts = program.opts();
@@ -88,6 +91,39 @@ async function main() {
     }
     const memberships = await skill.getMyTribes(token);
     console.log(skill.formatMemberships(memberships));
+    return;
+  }
+
+  // --contribute <slug>
+  if (opts.contribute) {
+    if (!token) {
+      console.error('--token or BLOOM_AUTH_TOKEN required to contribute');
+      process.exit(1);
+    }
+    const tag = opts.tag as PostTag | undefined;
+    if (!tag || !VALID_TAGS.includes(tag)) {
+      console.error(`--tag required. Choose from: ${VALID_TAGS.join(', ')}`);
+      process.exit(1);
+    }
+    if (!opts.content) {
+      console.error('--content required (min 20 characters)');
+      process.exit(1);
+    }
+    try {
+      const result = await skill.contribute(
+        opts.contribute,
+        {
+          tag,
+          content: opts.content,
+          playbookRef: opts.playbookRef,
+        },
+        token,
+      );
+      console.log(skill.formatContribution(result));
+    } catch (err) {
+      console.error('Contribution failed:', err instanceof Error ? err.message : 'Unknown error');
+      process.exit(1);
+    }
     return;
   }
 

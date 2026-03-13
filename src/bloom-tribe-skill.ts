@@ -29,6 +29,8 @@ import {
   Playbook,
   ActivityEvent,
   RateResult,
+  ContributionPayload,
+  ContributionResult,
   Tier,
   TIER_ORDER,
   TIER_THRESHOLDS,
@@ -148,6 +150,31 @@ export class BloomTribeSkill {
     );
     if (res?.data) return res.data;
     throw new Error('Rating failed');
+  }
+
+  // =====================================================
+  // Contribute
+  // =====================================================
+
+  async contribute(
+    slug: string,
+    payload: ContributionPayload,
+    token: string,
+  ): Promise<ContributionResult> {
+    validateSlug(slug);
+    if (!payload.content || payload.content.length < 20) {
+      throw new Error('Content must be at least 20 characters');
+    }
+    if (payload.content.length > 5000) {
+      throw new Error('Content must be at most 5000 characters');
+    }
+    const res = await this.post<ContributionResult>(
+      `/tribes/${encodeURIComponent(slug)}/posts`,
+      payload,
+      token,
+    );
+    if (res?.data) return res.data;
+    throw new Error('Contribution failed — check auth token and tribe membership');
   }
 
   // =====================================================
@@ -485,6 +512,20 @@ export class BloomTribeSkill {
       }
     }
 
+    return lines.join('\n');
+  }
+
+  formatContribution(result: ContributionResult): string {
+    const lines: string[] = [];
+    lines.push('Contribution accepted!');
+    lines.push('');
+    lines.push(`  Tribe: ${result.tribeId}`);
+    lines.push(`  Tag: ${result.tag}`);
+    lines.push(`  Post ID: ${result.id}`);
+    lines.push(`  Reputation: ${result.reputation}`);
+    lines.push(`  Tier: ${result.tier.charAt(0).toUpperCase() + result.tier.slice(1)}`);
+    lines.push('');
+    lines.push('Your reputation grows with quality ratings and citations.');
     return lines.join('\n');
   }
 
