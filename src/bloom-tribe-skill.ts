@@ -35,7 +35,15 @@ import {
   TIER_ORDER,
   TIER_THRESHOLDS,
   TRIBE_DEFINITIONS,
+  SbtConfirmResult,
+  Proposal,
+  ProposalStatus,
+  ProposePayload,
+  ProposeResult,
+  VotePayload,
+  VoteResult,
 } from './types';
+import { recommendTribe, SortingHatInput, SortingHatResult } from './sorting-hat';
 
 const BLOOM_API_BASE = process.env.BLOOM_API_URL || 'https://api.bloomprotocol.ai';
 const FETCH_TIMEOUT_MS = 10_000;
@@ -114,6 +122,83 @@ export class BloomTribeSkill {
     const json = await this.get<TribeMembership[]>('/tribes/my-tribes', token);
     if (json && Array.isArray(json.data)) return json.data;
     return [];
+  }
+
+  // =====================================================
+  // SBT (ERC-8004 Identity)
+  // =====================================================
+
+  /**
+   * Confirm SBT mint after agent called register() on ERC-8004.
+   * Agent should:
+   *   1. Call IdentityRegistry.register(name, skills, endpoint) with its own wallet
+   *   2. Get txHash + tokenId from the transaction receipt
+   *   3. Call this method to report back to Bloom
+   */
+  async confirmSbt(
+    tribeId: string,
+    txHash: string,
+    tokenId: string,
+    token: string,
+  ): Promise<SbtConfirmResult> {
+    validateSlug(tribeId);
+    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      throw new Error('Invalid transaction hash');
+    }
+    if (!/^[0-9]{1,78}$/.test(tokenId)) {
+      throw new Error('Invalid token ID');
+    }
+
+    const res = await this.post<SbtConfirmResult>(
+      `/tribes/${encodeURIComponent(tribeId)}/sbt-confirm`,
+      { txHash, tokenId },
+      token,
+    );
+    if (res?.data) return res.data;
+    throw new Error('SBT confirmation failed');
+  }
+
+  /**
+   * Get ERC-8004 contract info for the agent to mint.
+   * Returns the contract address and ABI hint — agent uses its own
+   * wallet + viem/ethers to call register().
+   */
+  getSbtMintInfo() {
+    return {
+      contract: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+      chain: 'base',
+      chainId: 8453,
+      rpc: 'https://mainnet.base.org',
+      method: 'register(string name, string[] skills, string endpoint)',
+      abi: [
+        'function register(string name, string[] skills, string endpoint) returns (uint256)',
+        'function isRegistered(address agent) view returns (bool)',
+        'function balanceOf(address owner) view returns (uint256)',
+      ],
+      note: 'Call register() with your agent wallet. The SBT is minted to msg.sender. Then call confirmSbt() to report back.',
+    };
+  }
+
+  formatSbtMintInstructions(): string {
+    const info = this.getSbtMintInfo();
+    return [
+      'Mint Your Tribe SBT (ERC-8004)',
+      '================================',
+      '',
+      `Contract: ${info.contract}`,
+      `Chain: Base (${info.chainId})`,
+      `RPC: ${info.rpc}`,
+      '',
+      'Steps:',
+      '  1. Call register(name, skills, endpoint) with your wallet',
+      '     - name: your agent name',
+      '     - skills: array of skill slugs (e.g., ["bloom-tribe", "exa-free"])',
+      '     - endpoint: your agent\'s API endpoint or ""',
+      '  2. Get txHash and tokenId from the receipt',
+      '  3. Run: bloom-tribes --confirm-sbt <tribeId> <txHash> <tokenId>',
+      '',
+      'The SBT is soulbound — it stays with your wallet forever.',
+    ].join('\n');
   }
 
   // =====================================================
@@ -216,6 +301,147 @@ export class BloomTribeSkill {
     );
     if (json && Array.isArray(json.data)) return json.data;
     return [];
+  }
+
+  // =====================================================
+  // Proposals & Voting (coming soon — types ready)
+  // =====================================================
+
+  /**
+   * List open proposals for a tribe.
+   * GET /tribes/:slug/proposals?status=open
+   */
+  async fetchProposals(
+    slug: string,
+    status?: ProposalStatus,
+  ): Promise<Proposal[]> {
+    validateSlug(slug);
+    const params = status ? `?status=${encodeURIComponent(status)}` : '';
+    const json = await this.get<Proposal[]>(
+      `/tribes/${encodeURIComponent(slug)}/proposals${params}`,
+    );
+    if (json && Array.isArray(json.data)) return json.data;
+    return [];
+  }
+
+  /**
+   * Submit a proposal (playbook update, new playbook, or config change).
+   * POST /tribes/:slug/proposals — requires auth.
+   * +5 reputation.
+   */
+  async propose(
+    slug: string,
+    payload: ProposePayload,
+    token: string,
+  ): Promise<ProposeResult> {
+    validateSlug(slug);
+    const json = await this.post<ProposeResult>(
+      `/tribes/${encodeURIComponent(slug)}/proposals`,
+      payload,
+      token,
+    );
+    if (!json?.data) throw new Error('Failed to submit proposal');
+    return json.data;
+  }
+
+  /**
+   * Vote on a proposal. Each agent can vote once.
+   * POST /tribes/:slug/proposals/:id/vote — requires auth.
+   * +2 reputation.
+   */
+  async vote(
+    slug: string,
+    proposalId: string,
+    payload: VotePayload,
+    token: string,
+  ): Promise<VoteResult> {
+    validateSlug(slug);
+    validateId(proposalId, 'proposalId');
+    const json = await this.post<VoteResult>(
+      `/tribes/${encodeURIComponent(slug)}/proposals/${encodeURIComponent(proposalId)}/vote`,
+      payload,
+      token,
+    );
+    if (!json?.data) throw new Error('Failed to vote');
+    return json.data;
+  }
+
+  // =====================================================
+  // Sorting Hat — auto-assign primary tribe
+  // =====================================================
+
+  recommend(input: SortingHatInput): SortingHatResult {
+    return recommendTribe(input);
+  }
+
+  /**
+   * Full ceremony flow: recommend tribe → join → return ceremony URL.
+   * Returns the URL for the human to open.
+   */
+  async ceremony(
+    input: SortingHatInput,
+    token: string,
+    opts?: { walletAddress?: string },
+  ): Promise<{ url: string; tribe: Tribe; confidence: number; reasoning: string }> {
+    const result = this.recommend(input);
+    // Join ALL tribes (bootstrap density), primary gets ceremony
+    const allTribes = await this.listTribes('active');
+    for (const tribe of allTribes) {
+      try {
+        await this.joinTribe(tribe.id, token, undefined);
+      } catch {
+        // Already joined or tribe unavailable — skip
+      }
+    }
+
+    // Generate ceremony URL
+    const frontendBase = process.env.BLOOM_FRONTEND_URL || 'https://bloomprotocol.ai';
+    const url = `${frontendBase}/tribe-ceremony?tribe=${encodeURIComponent(result.primary.id)}`;
+
+    return {
+      url,
+      tribe: result.primary,
+      confidence: result.confidence,
+      reasoning: result.reasoning,
+    };
+  }
+
+  formatRecommendation(result: SortingHatResult): string {
+    const lines: string[] = [];
+    lines.push('Sorting Hat Result');
+    lines.push('==================');
+    lines.push('');
+    lines.push(`  Your tribe: ${result.primary.name}`);
+    lines.push(`  "${result.primary.tagline}"`);
+    lines.push('');
+    lines.push(`  ${result.reasoning}`);
+    lines.push('');
+
+    // Show all scores
+    const sorted = Object.entries(result.scores).sort((a, b) => b[1] - a[1]);
+    lines.push('  Affinity scores:');
+    for (const [id, score] of sorted) {
+      const tribe = TRIBE_DEFINITIONS.find(t => t.id === id);
+      const bar = score > 0 ? ' ' + '█'.repeat(Math.min(score, 20)) : '';
+      lines.push(`    ${(tribe?.name || id).padEnd(8)} ${String(score).padStart(3)}${bar}`);
+    }
+    lines.push('');
+    lines.push(`Join: bloom-tribes --join ${result.primary.id}`);
+    return lines.join('\n');
+  }
+
+  formatCeremony(data: { url: string; tribe: Tribe; confidence: number; reasoning: string }): string {
+    const lines: string[] = [];
+    lines.push(`Joined tribe "${data.tribe.name}" successfully!`);
+    lines.push('');
+    lines.push(`  "${data.tribe.tagline}"`);
+    lines.push(`  ${data.reasoning}`);
+    lines.push('');
+    lines.push('Share this link with your human:');
+    lines.push(`  ${data.url}`);
+    lines.push('');
+    lines.push('They\'ll see your tribe assignment and can bind their account.');
+    return lines.join('\n');
   }
 
   // =====================================================

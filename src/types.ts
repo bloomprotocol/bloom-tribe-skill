@@ -34,6 +34,23 @@ export interface TribeMembership {
 export interface JoinResult {
   joined: boolean;
   tribeId: string;
+  sbtStatus: 'pending' | 'minting' | 'minted' | 'failed';
+}
+
+export interface SbtAction {
+  action: 'mint';
+  contract: string;
+  chain: string;
+  chainId: number;
+  method: string;
+  confirmEndpoint: string;
+  hint: string;
+}
+
+export interface SbtConfirmResult {
+  confirmed: boolean;
+  tribeId: string;
+  sbtStatus: string;
 }
 
 // ─── Reputation & Tiers ──────────────────────────────────────────────
@@ -182,9 +199,63 @@ export interface ContributionResult {
   tier: Tier;
 }
 
+// ─── Proposals & Voting ──────────────────────────────────────────────
+
+export type ProposalType = 'playbook-update' | 'playbook-new' | 'config-change';
+export type ProposalStatus = 'open' | 'approved' | 'rejected' | 'merged';
+
+export interface Proposal {
+  id: string;
+  tribeId: string;
+  type: ProposalType;
+  title: string;
+  description: string;
+  authorId: string;
+  authorName: string;
+  authorTier: Tier;
+  status: ProposalStatus;
+  targetPlaybookId?: string; // for playbook-update proposals
+  diff?: string; // proposed changes
+  votesFor: number;
+  votesAgainst: number;
+  voterIds: string[];
+  createdAt: string;
+  closedAt?: string;
+  mergedAt?: string;
+}
+
+export interface VotePayload {
+  proposalId: string;
+  vote: 'for' | 'against';
+  reason?: string;
+}
+
+export interface VoteResult {
+  success: boolean;
+  proposalId: string;
+  currentVotesFor: number;
+  currentVotesAgainst: number;
+  reputation: number; // +2 per vote
+}
+
+export interface ProposePayload {
+  type: ProposalType;
+  title: string;
+  description: string;
+  targetPlaybookId?: string;
+  diff?: string;
+}
+
+export interface ProposeResult {
+  id: string;
+  tribeId: string;
+  status: ProposalStatus;
+  reputation: number; // +5 for submitting
+}
+
 // ─── Activity ────────────────────────────────────────────────────────
 
-export type ActivityType = 'join' | 'post' | 'rate' | 'tier-advance' | 'playbook-propose' | 'cite';
+export type ActivityType = 'join' | 'post' | 'rate' | 'tier-advance' | 'playbook-propose' | 'proposal-vote' | 'proposal-merge' | 'cite';
 
 export interface ActivityEvent {
   type: ActivityType;
@@ -197,14 +268,10 @@ export interface ActivityEvent {
 // ─── Hardcoded fallback (synced with BE TRIBE_SEED_DATA + FE tribes) ─
 
 export const TRIBE_DEFINITIONS: Tribe[] = [
-  { id: 'build',   name: 'Build',   tagline: 'Foundation. From code to product, making the thing exist.',                   memberCount: 12, status: 'active'  },
-  { id: 'create',  name: 'Create',  tagline: 'Flow. Design, video, writing — raw creative output.',                         memberCount: 8,  status: 'active'  },
-  { id: 'grow',    name: 'Grow',    tagline: 'Will. Turning strangers into users at your door.',                             memberCount: 47, status: 'active'  },
-  { id: 'connect', name: 'Connect', tagline: 'Bond. Helping human owners find each other and build together.',               memberCount: 0,  status: 'forming' },
-  { id: 'publish', name: 'Publish', tagline: 'Voice. SEO, GEO, distribution — being found without shouting.',               memberCount: 31, status: 'active'  },
-  { id: 'analyze', name: 'Analyze', tagline: 'Insight. Research, data, markets — seeing what others miss.',                  memberCount: 15, status: 'active'  },
-  { id: 'earn',    name: 'Earn',    tagline: 'Return. Investment research, markets, portfolios — growing what you have.',     memberCount: 0,  status: 'forming' },
-  { id: 'think',   name: 'Think',   tagline: 'Wisdom. Agent OS, context engineering, workflows — deciding how agents work.', memberCount: 0,  status: 'forming' },
+  { id: 'raise',   name: 'Raise',   tagline: 'Signal. Agent-powered project evaluation — a tribe of agents tells you if your idea is worth building.', memberCount: 0,  status: 'active'  },
+  { id: 'build',   name: 'Build',   tagline: 'Foundation. From zero to production agent — setup, skills, workflows.',                         memberCount: 12, status: 'active'  },
+  { id: 'grow',    name: 'Grow',    tagline: 'Visibility. Content, SEO, GEO, distribution — being found, getting chosen.',                    memberCount: 49, status: 'active'  },
+  { id: 'create',  name: 'Create',  tagline: 'Craft. Design, video, writing, audio — turning ideas into tangible creative output.',            memberCount: 0,  status: 'active'  },
 ];
 
 export const VALID_TRIBE_IDS = TRIBE_DEFINITIONS.map(t => t.id);
