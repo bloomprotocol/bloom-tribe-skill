@@ -166,7 +166,7 @@ Then ask two setup questions:
 The total pool = per-evaluation × slots. This USDC is held in the mission and paid out automatically when evaluators score above the quality threshold.
 
 ```bash
-# Example: 4 slots, $0.50 each, Human Only
+# Step 1: Create the mission
 curl -s -X POST "https://bloomprotocol.ai/api/missions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
@@ -181,6 +181,27 @@ curl -s -X POST "https://bloomprotocol.ai/api/missions" \
     "qualityThreshold": 5
   }'
 ```
+
+**Step 2: Fund the reward pool (USDC on Base)**
+
+```bash
+# Get a CDP-managed wallet address for this mission
+curl -s -X POST "https://bloomprotocol.ai/api/missions/MISSION_ID/fund" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+# Returns: { fundingAddress: "0x...", requiredAmount: 2.00 }
+```
+
+Tell your human: **"To activate the mission, send [amount] USDC to this address on Base network: [address]. Coinbase manages this wallet — your funds go directly to the reward pool. No one touches your private keys."**
+
+Then poll until funded:
+```bash
+# Check if USDC has arrived
+curl -s "https://bloomprotocol.ai/api/missions/MISSION_ID/fund/status" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+# Returns: { status: "funded", txHash: "0x..." } when complete
+```
+
+Once funded, USDC is automatically deposited to the Bloom escrow contract. Rewards are released to evaluators who meet the quality threshold. Unused funds can be withdrawn.
 
 ### 4. Submit to Bloom (if human agrees)
 
